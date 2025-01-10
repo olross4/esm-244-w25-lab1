@@ -1,6 +1,11 @@
 ---
-title: "Template"
-format: html
+title: "Lab 1 Workup"
+author: "Olivia Ross"
+date: 9 January 2025
+format: 
+  html: 
+    code-fold: true
+    toc: true
 execute:
   eval: false
 ---
@@ -20,7 +25,7 @@ library(tmap)
 What do we need to change to get the data to load in the following chunk?
 
 ```{r}
-sfo_trees_df<-read_csv(here("data","trees")) |> janitor::clean_names()
+sfo_trees_df<-read_csv(here("data","sfo_trees", "sfo_trees.csv")) |> janitor::clean_names()
 ```
 
 ## Part 1: Data exploration
@@ -31,27 +36,44 @@ What are some interesting questions you could ask about the data?
 
 Write them below:
 
+There are 197,618 observations of 12 attributes about urban trees, their location, and management status. Some questions you may ask: 1) Is there a correlation between legal status and site order? 2) Which areas contain the most trees? 3) Which areas have the highest biodiversity of trees?
 
+Question we are answering in lab: How many counts of each observation by legal_status? Focus on the highest trees?
 
+```{r}
+top5_sites <- sfo_trees_df |>
+  group_by(legal_status)|>
+  summarize(tree_count=n())|>
+  slice_max(tree_count, n=5)
+```
 
-
-
-
+```{r}
+fig <- ggplot(top5_sites, aes(x=fct_reorder(legal_status, tree_count), y=tree_count)) +
+              geom_col(fill="orchid4") +
+      labs(x = "Legal Status", y = "Tree Count") +
+      
+      theme_bw()
+fig
+```
 
 
 ### Example 2
 
 Describe what this piece of code does. Feel free to run it to help you understand
 
+This code filters the original data frame to include trees that are on  permitted sites that also have caretakers that are MTA and DPW.
+
+
 ```{r}
-permitted_mta_dpw<-sfo_trees_df |> 
-  filter(legal_status == 'Permitted Site' & %in% c("MTA","DPW"))
+permitted_mta_dpw <- sfo_trees_df |> 
+  filter(legal_status == 'Permitted Site' & caretaker %in% c("MTA","DPW"))
 ```
 
 
 What does the `%in%` do? Write an example to explain the `%in%` operator to your neighbor using the empty code chunk below
 
 ```{r}
+Use %in% when selecting rows from a list of variables. 
 
 ```
 
@@ -62,18 +84,16 @@ Our boss tasked us with identifying oak and pine trees in SF based on legal stat
 
 Write pseudocode on how you would solve it
 
-
-
-
-
-
-
+Remove colums that we do not need for our analysis, filter out plants that are not oak and pine trees, summarize the oak and pine trees 
 
 Data wrangle done below:
 
 
 ```{r}
-
+oak_pine_df <- sfo_trees_df |>
+  filter(str_detect(species, "Oak") | str_detect(species, "Pine")) |>
+  select(species, legal_status, plant_date, latitude, longitude) |>
+  mutate(type=ifelse(str_detect(species, "Oak"), "Oak", "Pine"))
 ```
 
 
@@ -81,16 +101,17 @@ Summary stats
 
 ```{r}
 oak_pine_count<-oak_pine_df |> 
-  group_by(legal_status,type)
+  group_by(legal_status,type) |>
   summarize(count=n())
 ```
-
-
 
 Plot the locations of the trees as a scatterplot
 
 ```{r}
-
+ggplot(oak_pine_df, aes(longitude, latitude, color=type))+
+  geom_point() +
+  labs(color="Tree Type") +
+  theme_minimal()
 ```
 
 
@@ -100,16 +121,13 @@ Plot the locations of the trees as a scatterplot
 Why have a list of native trees in the data folder.
 
 ```{r}
-ca_native_df<-read_csv(here('data/sfo/ca_native_spp.csv'))
+ca_native_df<-read_csv(here('data/sfo_trees/ca_native_spp.csv'))
 
 # Why can I use this format instead of the usual here("data","folder","file")?
 ```
-
-
 ## Part 2: Analysis and maps
 
 We want to see if there was a difference in planting years between a native oak *Quercus agrifolia* and a native pine *Pinus radiata*. Wrangle the data and use an appropriate statistical test to see if there is a difference.
-
 
 
 **New Function!**
@@ -119,9 +137,20 @@ How to extract the year from the plant data column when it looks like "2022-11-1
 ```{r}
 lubridate::year("2022-11-16")
 ```
+```{r}
+sfo_trees_native <- sfo_trees_df |>
+  separate(species, into=c("spp_sci", "spp_common"), sep=" :: ") |>
+  select(starts_with("spp"), "plant_date", "legal_status", "longitude", "latitude") |>
+  mutate(ca_native=(spp_sci %in% ca_native_df$scientific_name))
+```
 
 ```{r}
-oak_pine_year_df<-????
+oak_pine_year_df <- sfo_trees_native |>
+  filter(spp_sci %in% c("Quercus agrifolia", "Pinus radiata")) |>
+  mutate(plant_year=lubridate::year(plant_date))
+
+#t test 
+t.test(plant_year ~ spp_sci, data=oak_pine_year_df)
 ```
 
 
@@ -147,7 +176,7 @@ Set the coordinate reference system
 
 ```{r}
 oak_pine_sf<-oak_pine_year_df |> 
-  drop_na(longtide,latitude) |> 
+  drop_na(longitude,latitude) |> 
   st_as_sf(coords=c("longitude","latitude"))
 
 st_crs(oak_pine_sf)<-4326
@@ -180,7 +209,12 @@ ggplot(data = sfo_map) +
 We have all the ingredients. How would you plot these two together to see the trees locations in the city?
 
 ```{r}
-
+ggplot() +
+  geom_sf(data=sfo_map, size=0.1, color="darkgrey") +
+  geom_point(data=oak_pine_sf,
+             color=spp_sci,
+             size=0.5)+
+  theme_void()
 ```
 
 
